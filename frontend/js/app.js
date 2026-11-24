@@ -46,6 +46,7 @@ async function renderPage() {
     if (state.page === 'reservations') return await renderReservations();
     if (state.page === 'balance') return await renderBalance();
     if (state.page === 'reviews') return await renderReviews();
+    if (state.page === 'profile') return await renderProfile();
     if (state.page === 'admin') return await renderAdmin();
   } catch (error) { notify(error.message, true); }
 }
@@ -77,7 +78,7 @@ function menuCard(menu) {
   const end = new Date(String(menu.rezervasyon_son).replace(' ', 'T'));
   const expired = end.getTime() <= Date.now();
   const price = Number(menu.fiyat);
-  const half = false;
+  const half = Number(menu.ogun_id) !== 1;
   const items = menu.yemekler.map(dish => `<li><span class="dish-info"><strong>${escapeHtml(dish.ad)}</strong><small>${escapeHtml(dish.kategori)}${dish.vejetaryen ? ' · Vejetaryen' : ''}${dish.alerjenler.length ? ` · ${escapeHtml(dish.alerjenler.join(', '))}` : ''}</small>${dish.uyarili ? '<span class="badge warn">Alerjen tercihinle eşleşiyor</span>' : ''}</span><span class="dish-kcal">${dish.kalori} kcal</span></li>`).join('');
   return `<article class="menu-card"><div class="menu-top"><div><div class="eyebrow">${escapeHtml(menu.ogun)} · ${escapeHtml(menu.yemekhane)}</div><h3>${escapeHtml(dateLabel(menu.tarih))}</h3><div class="menu-meta">${menu.bos_yer} / ${menu.kapasite} boş yer · Rezervasyon ${escapeHtml(String(menu.rezervasyon_son).slice(11, 16))}'e kadar</div></div><div class="price">${money(price)}</div></div><ul class="dish-list">${items}<li><strong>Toplam enerji</strong><strong>${menu.toplam_kalori.toLocaleString('tr-TR')} kcal</strong></li></ul><div class="menu-footer"><span class="badge">${menu.ortalama_puan ? `★ ${menu.ortalama_puan} · ${menu.oy_sayisi} değerlendirme` : 'Henüz puanlanmadı'}</span><div class="toolbar">${half ? `<label class="muted"><input type="checkbox" data-half="${menu.menu_id}"> Yarım</label>` : ''}<button class="button small" data-reserve="${menu.menu_id}" ${expired || Number(menu.bos_yer) < 1 ? 'disabled' : ''}>${expired ? 'Süre doldu' : 'Yer ayır'}</button></div></div></article>`;
 }
@@ -122,6 +123,17 @@ async function renderReviews() {
     try { await api('/degerlendirmeler', { method: 'POST', body: JSON.stringify({ menu_id: Number(form.dataset.review), puan: Number(values.get('puan')), yorum: values.get('yorum') }) }); notify('Değerlendirmen kaydedildi.'); await renderReviews(); }
     catch (error) { notify(error.message, true); }
   }));
+}
+
+async function renderProfile() {
+  const data = await api('/profil');
+  const selected = new Set((data.kullanici.alerjenler || []).map(Number));
+  content.innerHTML = `${heading('Hesabım', 'Profil & alerjenler', 'Seçimlerin menü kartlarında sana özel uyarı oluşturur.')}<div class="card"><div class="eyebrow">${escapeHtml(data.kullanici.eposta)}</div><h2>${escapeHtml(data.kullanici.ad)} ${escapeHtml(data.kullanici.soyad)}</h2><p class="muted">${({ ogrenci: 'Öğrenci', personel: 'Personel', yonetici: 'Yönetici' })[data.kullanici.rol]}</p><form id="allergen-form"><div class="section-title"><h2>Kaçınmam gereken alerjenler</h2><span class="muted">Birden fazla seçebilirsin</span></div><div class="allergen-grid">${data.alerjenler.map(allergen => `<label class="check-item"><input type="checkbox" name="alerjen" value="${allergen.id}" ${selected.has(Number(allergen.id)) ? 'checked' : ''}>${escapeHtml(allergen.ad)}</label>`).join('')}</div><button class="button" style="margin-top:18px">Tercihlerimi kaydet</button></form></div>`;
+  document.querySelector('#allergen-form').addEventListener('submit', async event => {
+    event.preventDefault(); const ids = [...new FormData(event.target).getAll('alerjen')].map(Number);
+    try { await api('/profil/alerjenler', { method: 'POST', body: JSON.stringify({ alerjenler: ids }) }); state.user.alerjenler = ids; notify('Alerjen tercihleriniz güncellendi.'); }
+    catch (error) { notify(error.message, true); }
+  });
 }
 
 async function renderAdmin() {
