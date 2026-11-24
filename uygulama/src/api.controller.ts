@@ -3,14 +3,13 @@ import { Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 import { DatabaseService } from './database.service';
+import { RedisService } from './redis.service';
 
 type UserSession = { id: number; ad: string; soyad: string; eposta: string; rol: string; bakiye: number };
 
 @Controller()
 export class ApiController {
-  private sessions = new Map<string, { user: UserSession; expiresAt: number }>();
-
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly redis: RedisService) {}
 
   private fail(error: unknown): never {
     if (error instanceof HttpException) throw error;
@@ -24,13 +23,10 @@ export class ApiController {
   private async session(req: Request): Promise<{ token: string; user: UserSession }> {
     const token = req.headers.cookie?.split(';').map(value => value.trim()).find(value => value.startsWith('yemekhane_oturum='))?.slice('yemekhane_oturum='.length);
     if (!token) throw new HttpException({ message: 'Oturum a?man?z gerekiyor.' }, 401);
-    const saved = this.sessions.get(token);
-    if (!saved || saved.expiresAt < Date.now()) {
-      this.sessions.delete(token);
-      throw new HttpException({ message: 'Oturum s?reniz doldu.' }, 401);
-    }
-    saved.expiresAt = Date.now() + 1800000;
-    return { token, user: saved.user };
+    const saved = await this.redis.get(`oturum:${token}`);
+    if (!saved) throw new HttpException({ message: 'Oturum s?reniz doldu.' }, 401);
+    await this.redis.expire(`oturum:${token}`, 1800);
+    return { token, user: JSON.parse(saved) as UserSession };
   }
 
   @Get('/')
@@ -44,7 +40,7 @@ export class ApiController {
       if (!user || !(await bcrypt.compare(body.sifre || '', user.sifre_hash))) throw new HttpException({ message: 'E-posta veya şifre hatalı.' }, 401);
       const token = randomBytes(32).toString('hex');
       const data: UserSession = { id: user.id, ad: user.ad, soyad: user.soyad, eposta: user.eposta, rol: user.rol, bakiye: user.bakiye };
-      this.sessions.set(token, { user: data, expiresAt: Date.now() + 1800000 });
+      await this.redis.set(`oturum:${token}`, JSON.stringify(data), 1800);
       response.cookie('yemekhane_oturum', token, { httpOnly: true, sameSite: 'lax', secure: false, path: '/', maxAge: 1800000 });
       return { kullanici: data };
     } catch (error) { return this.fail(error); }
@@ -53,7 +49,7 @@ export class ApiController {
   @Post('/auth/cikis')
   async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
     const token = request.headers.cookie?.split(';').map(value => value.trim()).find(value => value.startsWith('yemekhane_oturum='))?.slice('yemekhane_oturum='.length);
-    if (token) this.sessions.delete(token);
+    if (token) await this.redis.del(`oturum:${token}`);
     response.clearCookie('yemekhane_oturum', { path: '/' });
     return { mesaj: 'Oturum kapatıldı.' };
   }
@@ -81,7 +77,7 @@ export class ApiController {
     if (meal) { sql += ' AND d.ogun_id = ?'; where.push(Number(meal)); }
     sql += ' ORDER BY d.ogun_sira, d.kategori_sira, d.yemek';
     const expiry = Math.max(1, Math.floor((new Date(`${selectedDate}T23:59:59+03:00`).getTime() - Date.now()) / 1000));
-    const rows = await this.db.rows<any>(sql, where);
+    const rows = await this.cachedRows(`menu:${hall}:${selectedDate}:${meal || '*'}`, sql, where, expiry);
     const menus = new Map<number, any>();
     for (const row of rows) {
       if (!menus.has(row.menu_id)) menus.set(row.menu_id, { ...row, yemekler: [], toplam_kalori: 0, alerjen_uyarilari: [] });
@@ -95,12 +91,25 @@ export class ApiController {
   }
 
 
+  private async cachedRows(key: string, sql: string, values: unknown[], seconds: number) {
+    const cached = await this.redis.get(key);
+    if (cached) {
+      console.info(`menu-cache hit ${key}`);
+      return JSON.parse(cached);
+    }
+    const rows = await this.db.rows<any>(sql, values);
+    await this.redis.set(key, JSON.stringify(rows), seconds);
+    console.info(`menu-cache miss ${key}`);
+    return rows;
+  }
+
   @Post('/rezervasyonlar')
   async reserve(@Req() request: Request, @Body() body: { menu_id: number }) {
     const { user } = await this.session(request);
     try {
       const [result] = await this.db.write.query<any[]>('CALL sp_rezervasyon_yap(?, ?)', [user.id, body.menu_id]);
       const [live] = await this.db.write.query<any[]>('SELECT bakiye FROM kullanicilar WHERE id = ?', [user.id]);
+      await this.redis.deletePattern('menu:*');
       return { ...(result[0]?.[0] || {}), bakiye: Number(live[0]?.bakiye) };
     } catch (error) { return this.fail(error); }
   }
@@ -117,6 +126,7 @@ export class ApiController {
     try {
       const [result] = await this.db.write.query<any[]>('CALL sp_rezervasyon_iptal(?, ?)', [user.id, Number(id)]);
       const [fresh] = await this.db.write.query<any[]>('SELECT bakiye FROM kullanicilar WHERE id = ?', [user.id]);
+      await this.redis.deletePattern('menu:*');
       return { ...(result[0]?.[0] || {}), bakiye: Number(fresh[0]?.bakiye) };
     } catch (error) { return this.fail(error); }
   }
@@ -137,6 +147,7 @@ export class ApiController {
     try {
       const [result] = await this.db.write.query<any[]>('CALL sp_bakiye_yukle(?, ?)', [user.id, body.tutar]);
       const [fresh] = await this.db.write.query<any[]>('SELECT bakiye FROM kullanicilar WHERE id = ?', [user.id]);
+      await this.redis.deletePattern('menu:*');
       return { ...(result[0]?.[0] || {}), bakiye: Number(fresh[0]?.bakiye) };
     } catch (error) { return this.fail(error); }
   }
