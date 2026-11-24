@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#142820">
+  <title>Kampüs Sofrası | Yemekhane</title>
+  <link rel="icon" type="image/svg+xml" href="/img/favicon.svg">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section id="login-screen" class="login-wrap">
+      <div class="login-card">
+        <div class="login-logo">✳</div>
+        <p class="eyebrow">Kampüs Sofrası</p>
+        <h1>Yemeğin hazır.</h1>
+        <p>Menünü seç, yerini ayır ve kampüs gününe iyi bir başlangıç yap.</p>
+        <div id="login-message"></div>
+        <form id="login-form" class="login-form">
+          <div class="form-field"><label for="email">Üniversite e-postası</label><input class="field" id="email" type="email" autocomplete="username" placeholder="ad@kampus.edu.tr" required></div>
+          <div class="form-field"><label for="password">Şifre</label><input class="field" id="password" type="password" autocomplete="current-password" required></div>
+          <button class="button" type="submit">Giriş yap <span aria-hidden="true">→</span></button>
+        </form>
+        <div class="login-foot">Güvenli oturum · 30 dakika işlem yapılmadığında kapanır</div>
+      </div>
+    </section>
+    <section id="app-screen" class="hidden">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">✳</span><span>Kampüs Sofrası <span class="muted">/ Yemekhane</span></span></div>
+        <div class="top-user"><div class="avatar" id="user-avatar">E</div><div class="user-name"><strong id="user-name">Kullanıcı</strong><div class="muted" id="user-role"></div></div><button class="button light small" id="logout">Çıkış</button></div>
+      </header>
+      <div class="layout">
+        <nav class="side-nav" aria-label="Ana menü">
+          <span class="nav-caption">Yemek</span>
+          <button class="nav-button active" data-page="menu">◉　Menüler</button>
+          <button class="nav-button" data-page="reservations">▤　Rezervasyonlar</button>
+          <button class="nav-button" data-page="balance">◈　Bakiyem</button>
+          <button class="nav-button" data-page="reviews">☆　Değerlendirme</button>
+          <span class="nav-caption">Hesap</span>
+          <button class="nav-button" data-page="profile">◎　Profil & alerjenler</button>
+          <button class="nav-button hidden" id="admin-nav" data-page="admin">▦　Yönetici paneli</button>
+        </nav>
+        <section class="content" id="content" aria-live="polite"></section>
+      </div>
+    </section>
+    <div id="toast" class="notice hidden" role="status"></div>
+  </main>
+  <script src="/js/app.js" defer></script>
+</body>
+</html>
